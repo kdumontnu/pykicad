@@ -4,6 +4,20 @@ from functools import reduce
 import pyparsing
 pyparsing.ParserElement.enablePackrat()
 
+X, Y = 0, 1
+
+## TODO: design this out
+COLORMAP = {
+    'F.Cu' : '#e18335',
+    'F.Fab': '#819595',
+    'F.SilkS': '#e4cc37',
+    'F.CrtYd': '#8fc93a',
+    'B.Cu' : '#0072bb',
+    'B.Fab': '#564d4a',
+    'B.SilkS': '#1e91d6',
+    'B.CrtYd': '#8fc93a'
+}
+
 text = dblQuotedString | Word(printables + alphas8bit, excludeChars=')')
 # text = pyparsing.quotedString.addParseAction(pyparsing.removeQuotes)
 # number = Combine(Optional('-') + Word(nums) + Optional(Word('.') + Word(nums)))

@@ -1,10 +1,13 @@
-from pykicad.sexpr import *
-from pykicad.module import Module, Net, xy_schema
-from pykicad.sexpr import number, text, integer, boolean, flag, Optional
-from pykicad.sexpr import tuple_parser, AST, Literal, Group, OneOrMore
-from pykicad.sexpr import allowed, extend_schema, extend_schema, yes_no
-from pykicad.sexpr import Suppress, tree_to_string
+from numpy.core.records import array
+from svgwrite.mixins import ViewBox
+from .sexpr import *
+from .module import Module, Net, xy_schema
+from .sexpr import number, text, integer, boolean, flag, Optional
+from .sexpr import tuple_parser, AST, Literal, Group, OneOrMore
+from .sexpr import allowed, extend_schema, extend_schema, yes_no
+from .sexpr import Suppress, tree_to_string
 
+import svgwrite as _svg
 
 class Segment(AST):
     tag = 'segment'
@@ -24,6 +27,34 @@ class Segment(AST):
                                       layer=layer, net=net, tstamp=tstamp,
                                       status=status)
 
+    def extent(self, padding=0):
+        min_pos = 1e8, 1e8
+        max_pos = -1e8, -1e8
+
+        min_pos = [min(dim, mp) for dim, mp in zip(self.start, min_pos)]
+        min_pos = [min(dim, mp) for dim, mp in zip(self.end, min_pos)]
+
+        max_pos = [max(dim, mp) for dim, mp in zip(self.start, max_pos)]
+        max_pos = [max(dim, mp) for dim, mp in zip(self.end, max_pos)]
+
+        min_pos = [pos - padding for pos in min_pos]
+        max_pos = [pos + padding for pos in max_pos]
+
+        return [min_pos, max_pos]
+
+    def to_svg(self, dwg):
+        kw = dict()
+        if self.layer in COLORMAP:
+            kw['stroke'] = COLORMAP[self.layer]
+        else:
+            print(self.layer)
+            kw['stroke'] = '#FF0000'
+        if not self.width:
+            width = 0.2
+        else:
+            width = self.width
+        
+        dwg.add(dwg.line(self.start, self.end, stroke_width=width, stroke_linecap='round', **kw))
 
 class GrText(AST):
     tag = 'gr_text'
@@ -144,6 +175,22 @@ class GrPolygon(AST):
     def __init__(self, pts, layer='Edge.Cuts', width=None, tstamp=None, status=None):
         super(self.__class__, self).__init__(pts=pts, layer=layer, width=width,
                                         tstamp=tstamp, status=status)
+    
+    def extent(self, padding=0):
+        min_pos = 1e8, 1e8
+        max_pos = -1e8, -1e8
+        for pt in self.pts:
+            min_pos = [min(dim, mp) for dim, mp in zip(pt, min_pos)]
+            max_pos = [max(dim, mp) for dim, mp in zip(pt, max_pos)]
+
+        min_pos = [pos - padding for pos in min_pos]
+        max_pos = [pos + padding for pos in max_pos]
+
+        return [min_pos, max_pos]
+
+    def to_svg(self, dwg: _svg.Drawing):
+        pts = self.pts
+        dwg.add(dwg.polygon(points=pts, fill='none', stroke='black', stroke_width=0.2, stroke_linejoin='round'))
 
 
 class GrCurve(AST):
@@ -851,11 +898,9 @@ class Pcb(AST):
         min_pos = 1e8, 1e8
         max_pos = -1e8, -1e8
         for item in self.outline():
-            min_pos = [min(dim, mp) for dim, mp in zip(item.start, min_pos)]
-            min_pos = [min(dim, mp) for dim, mp in zip(item.end, min_pos)]
-
-            max_pos = [max(dim, mp) for dim, mp in zip(item.start, max_pos)]
-            max_pos = [max(dim, mp) for dim, mp in zip(item.end, max_pos)]
+            dim_min, dim_max = item.extent()
+            min_pos = [min(dim, mp) for dim, mp in zip(dim_min, min_pos)]
+            max_pos = [max(dim, mp) for dim, mp in zip(dim_max, max_pos)]
 
         min_pos = [pos - padding for pos in min_pos]
         max_pos = [pos + padding for pos in max_pos]
@@ -886,6 +931,20 @@ class Pcb(AST):
             path += '.kicad_pcb'
         with open(path, 'w+', encoding='utf-8') as f:
             f.write(self.to_string())
+
+    def to_svg(self, path):
+        if not path.endswith('.svg'):
+            path += '.svg'
+        extent = self.extent()
+        viewbox = '{} {} {} {}'.format(extent[0][X], extent[0][Y], extent[2][X] - extent[0][X], extent[2][Y] - extent[0][Y])
+        dwg = _svg.Drawing(path, viewBox=(viewbox))
+        for elem in self.geometry():
+            elem.to_svg(dwg)
+        for elem in self.modules:
+            elem.to_svg(dwg)
+        for elem in self.segments:
+            elem.to_svg(dwg)
+        dwg.save()
 
     @classmethod
     def from_file(cls, path):

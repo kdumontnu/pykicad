@@ -4,7 +4,9 @@ import re
 import sys
 import copy
 from io import open
-from pykicad.sexpr import *
+
+from svgwrite.mixins import Transform
+from .sexpr import *
 
 # Cache initial module text
 cached_modules = {}
@@ -216,6 +218,23 @@ class Pad(AST):
         # if len(self.at) > 2:
         #     self.at[2] = -self.at[2]
 
+    def to_svg(self, dwg, rotation=None, offset=None):
+        kw = dict()
+        if offset is not None:
+            kw['transform'] = 'translate({},{})'.format(offset[X], offset[Y])
+        for layer in self.layers:
+            if layer in COLORMAP:
+                kw['fill'] = COLORMAP[layer]
+            else:
+                if layer in ('F.Mask', 'F.Paste', 'B.Mask', 'B.Paste'):
+                    continue
+                print(layer)
+                kw['fill'] = '#FF0000'
+
+            dwg.add(dwg.rect([sum(x) for x in zip(self.at, [-x/2 for x in self.size])],
+                            self.size, 
+                            self.roundrect_rratio*self.size[0], self.roundrect_rratio*self.size[0], 
+                            **kw))
 
 class Text(AST):
     tag = 'fp_text'
@@ -300,6 +319,25 @@ class Line(AST):
         self.layer = flip_layer(self.layer)
         self.start[1] = -self.start[1]
         self.end[1] = -self.end[1]
+
+    def to_svg(self, dwg, rotation=None, offset=None):
+        kw = dict()
+        if offset is not None:
+            kw['transform'] = 'translate({},{})'.format(offset[X], offset[Y])
+        if self.layer in COLORMAP:
+            kw['stroke'] = COLORMAP[self.layer]
+        else:
+            print(self.layer)
+            kw['stroke'] = '#FF0000'
+        if not self.width:
+            width = 0.2
+        else:
+            width = self.width
+
+        dwg.add(dwg.line(start=self.start, 
+                         end=self.end, 
+                         stroke_width=width, 
+                         stroke_linecap='round', **kw))
 
 
 class Circle(AST):
@@ -673,3 +711,9 @@ class Module(AST):
             text.flip()
         for elem in self.geometry():
             elem.flip()
+
+    def to_svg(self, dwg):
+        for elem in self.geometry():
+            elem.to_svg(dwg, offset=self.at)
+        for elem in self.pads:
+            elem.to_svg(dwg, offset=self.at)
